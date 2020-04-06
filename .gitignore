@@ -1,0 +1,22 @@
+# Eclipse
+.classpath
+.project
+.settings/
+.recommenders/
+.directory
+.metadata/
+
+# Intellij
+.idea/
+*.iml
+*.iws
+
+# Mac
+.DS_Store
+
+# Maven
+log/
+target/
+
+# Derby
+*derby.log
