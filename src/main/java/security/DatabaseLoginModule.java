@@ -15,6 +15,11 @@ import javax.security.auth.callback.UnsupportedCallbackException;
 import javax.security.auth.login.LoginException;
 import javax.security.auth.spi.LoginModule;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import com.sun.security.auth.UserPrincipal;
+
 /**
  * Official documentations:
  * 
@@ -36,11 +41,21 @@ public class DatabaseLoginModule implements LoginModule {
 	private DatabaseConnectionFactory databaseConnectionFactory = new DatabaseConnectionFactory();
 
 	private boolean authenticated;
+	private User user;
+	private Subject subject;
+
+	private final static Logger LOGGER = LoggerFactory.getLogger(DatabaseLoginModule.class);
 
 	@Override
 	public void initialize(Subject subject, CallbackHandler callbackHandler, Map<String, ?> sharedState,
 			Map<String, ?> options) {
 		this.loginCallbackHandler = callbackHandler;
+
+		/*
+		 * The Subject is associated with Principal in the commit method in case
+		 * authentication was successfull.
+		 */
+		this.subject = subject;
 	}
 
 	/**
@@ -64,6 +79,8 @@ public class DatabaseLoginModule implements LoginModule {
 				sb.append(String.format("%02x", b & 0xff));
 			}
 			hashedPassword = sb.toString();
+
+			LOGGER.debug("PasswordHash computed {}.", hashedPassword);
 		}
 	}
 
@@ -73,7 +90,6 @@ public class DatabaseLoginModule implements LoginModule {
 
 		public void username(String username) {
 			assert Objects.nonNull(username);
-
 			this.username = username;
 		}
 
@@ -92,6 +108,10 @@ public class DatabaseLoginModule implements LoginModule {
 				UserDAO userDAO = new UserDAO(connection);
 				User user = userDAO.queryForUser(usernameCallback.username);
 
+				this.user = user;
+
+				LOGGER.debug("User retrieved {}.", user);
+
 				/* ... and compare hashes. */
 				if (Objects.isNull(user) || !user.getMd5PasswordHash().equals(hashCallback.hashedPassword)) {
 					authenticated = false;
@@ -109,19 +129,43 @@ public class DatabaseLoginModule implements LoginModule {
 
 	@Override
 	public boolean commit() throws LoginException {
+		if (authenticated) {
+			/* Imply UserPrincipal with Subject. */
+			UserPrincipal userPrincipal = new UserPrincipal(this.user.getUsername());
+			this.subject.getPrincipals().add(userPrincipal);
+
+			LOGGER.debug("UserPrincipal associated {}.", userPrincipal);
+		} else {
+			this.clearState();
+		}
+
 		return authenticated;
+	}
+
+	/**
+	 * Clears the state of the LoginModule.
+	 */
+	private void clearState() {
+		this.subject = null;
+		this.user = null;
 	}
 
 	@Override
 	public boolean abort() throws LoginException {
-		// TODO Auto-generated method stub
-		return false;
+		if (!authenticated)
+			this.clearState();
+
+		return authenticated;
 	}
 
 	@Override
 	public boolean logout() throws LoginException {
-		// TODO Auto-generated method stub
-		return false;
+		/*
+		 * Removes all UserPrincipals from the Subject. Is is assumed all UserPrincipals
+		 * has been created by this LoginModule also.
+		 */
+		this.subject.getPrincipals().removeAll(this.subject.getPrincipals(UserPrincipal.class));
+		return true;
 	}
 
 }
